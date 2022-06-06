@@ -1,5 +1,7 @@
 // This demo does web requests to a fixed IP address, using a fixed gateway.
-// 2010-11-27 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
+// 2010-11-27 <jc@wippler.nl>
+//
+// License: GPLv2
 
 #include <EtherCard.h>
 
@@ -9,6 +11,8 @@
 static byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x31 };
 // ethernet interface ip address
 static byte myip[] = { 192,168,1,203 };
+// ethernet interface ip netmask
+static byte mask[] = { 255,255,255,0 };
 // gateway ip address
 static byte gwip[] = { 192,168,1,1 };
 // remote website ip address and port
@@ -30,11 +34,12 @@ static void my_result_cb (byte status, word off, word len) {
 void setup () {
   Serial.begin(57600);
   Serial.println("\n[getStaticIP]");
-  
-  if (ether.begin(sizeof Ethernet::buffer, mymac) == 0) 
+
+  // Change 'SS' to your Slave Select pin, if you arn't using the default pin
+  if (ether.begin(sizeof Ethernet::buffer, mymac, SS) == 0)
     Serial.println( "Failed to access Ethernet controller");
 
-  ether.staticSetup(myip, gwip);
+  ether.staticSetup(myip, gwip, NULL, mask);
 
   ether.copyIp(ether.hisip, hisip);
   ether.printIp("Server: ", ether.hisip);
@@ -42,13 +47,13 @@ void setup () {
   while (ether.clientWaitingGw())
     ether.packetLoop(ether.packetReceive());
   Serial.println("Gateway found");
-  
+
   timer = - REQUEST_RATE; // start timing out right away
 }
 
 void loop () {
   ether.packetLoop(ether.packetReceive());
-  
+
   if (millis() > timer + REQUEST_RATE) {
     timer = millis();
     Serial.println("\n>>> REQ");

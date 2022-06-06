@@ -39,86 +39,14 @@ const char noIP_web[] PROGMEM = "dynupdate.no-ip.com";
 
 // Some global variables
 byte Ethernet::buffer[700];
-byte getIP_address[4];
-byte noIP_address[4];
+byte getIP_address[IP_LEN];
+byte noIP_address[IP_LEN];
 byte actual_status;
 static byte session_id;
 static uint32_t check_ip_timer;
 static uint32_t request_timer;
 int attempt;
 Stash stash;
-
-void setup () {
-
-    Serial.begin(57600);
-    Serial.println(F("NoIP Client Demo"));
-    Serial.println();
-
-    if (!ether.begin(sizeof Ethernet::buffer, mymac, 10))
-        Serial.println(F( "Failed to access Ethernet controller"));
-    else
-        Serial.println(F("Ethernet controller initialized"));
-    Serial.println();
-
-    if (!ether.dhcpSetup())
-        Serial.println(F("Failed to get configuration from DHCP"));
-    else
-        Serial.println(F("DHCP configuration done"));
-
-    ether.printIp("IP Address:\t", ether.myip);
-    ether.printIp("Netmask:\t", ether.netmask);
-    ether.printIp("Gateway:\t", ether.gwip);
-    Serial.println();
-
-    actual_status = STATUS_IDLE;
-    attempt = 0;
-
-    // Resolve IP for getIP_web and noIP_web
-    // and store them into global variables
-    if (!ether.dnsLookup(getIP_web)) {
-        Serial.print(F("Unable to resolve IP for "));
-        SerialPrint_P(getIP_web);
-        actual_status = STATUS_ERROR;
-    } else {
-        ether.copyIp(getIP_address, ether.hisip);
-        SerialPrint_P(getIP_web);
-        ether.printIp(" resolved to:\t", ether.hisip);
-    }
-    if (!ether.dnsLookup(noIP_web)) {
-        Serial.print(F("Unable to resolve IP for "));
-        SerialPrint_P(noIP_web);
-        actual_status = STATUS_ERROR;
-    } else {
-        ether.copyIp(noIP_address, ether.hisip);
-        SerialPrint_P(noIP_web);
-        ether.printIp(" resolved to:\t", ether.hisip);
-    }
-
-    Serial.println();
-}
-
-
-void loop() {
-
-    ether.packetLoop(ether.packetReceive());
-
-    // FSM
-    switch(actual_status) {
-
-    case STATUS_IDLE:
-        checkPublicIP();
-        break;
-    case STATUS_WAITING_FOR_PUBLIC_IP:
-        checkPublicIPResponse();
-        break;
-    case STATUS_NOIP_NEEDS_UPDATE:
-        updateNoIP();
-        break;
-    case STATUS_WAITING_FOR_NOIP:
-        checkNoIPResponse();
-        break;
-    }
-}
 
 void checkPublicIP() {
 
@@ -274,6 +202,79 @@ void checkNoIPResponse() {
     }
 }
 
-void SerialPrint_P(PGM_P str) {
+void SerialPrint_P(const char* str PROGMEM) {
     for (uint8_t c; (c = pgm_read_byte(str)); str++) Serial.write(c);
+}
+
+void setup () {
+
+    Serial.begin(57600);
+    Serial.println(F("NoIP Client Demo"));
+    Serial.println();
+
+    // Change 'SS' to your Slave Select pin, if you arn't using the default pin
+    if (!ether.begin(sizeof Ethernet::buffer, mymac, SS))
+        Serial.println(F( "Failed to access Ethernet controller"));
+    else
+        Serial.println(F("Ethernet controller initialized"));
+    Serial.println();
+
+    if (!ether.dhcpSetup())
+        Serial.println(F("Failed to get configuration from DHCP"));
+    else
+        Serial.println(F("DHCP configuration done"));
+
+    ether.printIp("IP Address:\t", ether.myip);
+    ether.printIp("Netmask:\t", ether.netmask);
+    ether.printIp("Gateway:\t", ether.gwip);
+    Serial.println();
+
+    actual_status = STATUS_IDLE;
+    attempt = 0;
+
+    // Resolve IP for getIP_web and noIP_web
+    // and store them into global variables
+    if (!ether.dnsLookup(getIP_web)) {
+        Serial.print(F("Unable to resolve IP for "));
+        SerialPrint_P(getIP_web);
+        actual_status = STATUS_ERROR;
+    } else {
+        ether.copyIp(getIP_address, ether.hisip);
+        SerialPrint_P(getIP_web);
+        ether.printIp(" resolved to:\t", ether.hisip);
+    }
+    if (!ether.dnsLookup(noIP_web)) {
+        Serial.print(F("Unable to resolve IP for "));
+        SerialPrint_P(noIP_web);
+        actual_status = STATUS_ERROR;
+    } else {
+        ether.copyIp(noIP_address, ether.hisip);
+        SerialPrint_P(noIP_web);
+        ether.printIp(" resolved to:\t", ether.hisip);
+    }
+
+    Serial.println();
+}
+
+
+void loop() {
+
+    ether.packetLoop(ether.packetReceive());
+
+    // FSM
+    switch(actual_status) {
+
+    case STATUS_IDLE:
+        checkPublicIP();
+        break;
+    case STATUS_WAITING_FOR_PUBLIC_IP:
+        checkPublicIPResponse();
+        break;
+    case STATUS_NOIP_NEEDS_UPDATE:
+        updateNoIP();
+        break;
+    case STATUS_WAITING_FOR_NOIP:
+        checkNoIPResponse();
+        break;
+    }
 }

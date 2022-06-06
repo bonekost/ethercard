@@ -1,4 +1,6 @@
 // Example of EtherCard usage, contributed by Will Rose, 2012-07-05.
+//
+// License: GPLv2
 
 #include <EtherCard.h>
 
@@ -20,7 +22,9 @@ void setup(void)
 
     /* Check that the Ethernet controller exists */
     Serial.println("Initialising the Ethernet controller");
-    if (ether.begin(sizeof Ethernet::buffer, mac, 8) == 0) {
+
+    // Change 'SS' to your Slave Select pin, if you arn't using the default pin
+    if (ether.begin(sizeof Ethernet::buffer, mac, SS) == 0) {
         Serial.println( "Ethernet controller NOT initialised");
         while (true)
             /* MT */ ;

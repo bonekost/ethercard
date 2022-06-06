@@ -1,25 +1,16 @@
-// This code slightly follows the conventions of, but is not derived from:
-//      EHTERSHIELD_H library for Arduino etherShield
-//      Copyright (c) 2008 Xing Yu.  All right reserved. (this is LGPL v2.1)
-// It is however derived from the enc28j60 and ip code (which is GPL v2)
-//      Author: Pascal Stang
-//      Modified by: Guido Socher
-//      DHCP code: Andrew Lindsay
-// Hence: GPL V2
-//
-// 2010-05-19 <jc@wippler.nl>
-
-#include <EtherCard.h>
 #include <stdarg.h>
 #include <avr/eeprom.h>
 
+#include "stash.h"
+
 #define WRITEBUF  0
 #define READBUF   1
+#define BUFCOUNT  2
 
 //#define FLOATEMIT // uncomment line to enable $T in emit_P for float emitting
 
 byte Stash::map[SCRATCH_MAP_SIZE];
-Stash::Block Stash::bufs[2];
+Stash::Block Stash::bufs[BUFCOUNT];
 
 uint8_t Stash::allocBlock () {
     for (uint8_t i = 0; i < sizeof map; ++i)
@@ -76,7 +67,7 @@ uint8_t Stash::freeCount () {
     return count;
 }
 
-// create a new stash; make it the active stash; return the first block as a handle 
+// create a new stash; make it the active stash; return the first block as a handle
 uint8_t Stash::create () {
     uint8_t blk = allocBlock();
     load(WRITEBUF, blk);
@@ -84,7 +75,7 @@ uint8_t Stash::create () {
     bufs[WRITEBUF].head.first = bufs[0].head.last = blk;
     bufs[WRITEBUF].tail = sizeof (StashHeader);
     bufs[WRITEBUF].next = 0;
-    return open(blk); // you are now the active stash 
+    return open(blk); // you are now the active stash
 }
 
 // the stashheader part only contains reasonable data if we are the first block
@@ -139,22 +130,14 @@ char Stash::get () {
     return b;
 }
 
-// fetchbyte(last, 62) is tail, i.e., number of characters in last block 
+// fetchbyte(last, 62) is tail, i.e., number of characters in last block
 uint16_t Stash::size () {
     return 63 * count + fetchByte(last, 62) - sizeof (StashHeader);
 }
 
-static char* wtoa (uint16_t value, char* ptr) {
-    if (value > 9)
-        ptr = wtoa(value / 10, ptr);
-    *ptr = '0' + value % 10;
-    *++ptr = 0;
-    return ptr;
-}
-
-// write information about the fmt string and the arguments into special page/block 0    
-// block 0 is initially marked as allocated and never returned by allocateBlock 
-void Stash::prepare (PGM_P fmt, ...) {
+// write information about the fmt string and the arguments into special page/block 0
+// block 0 is initially marked as allocated and never returned by allocateBlock
+void Stash::prepare (const char* fmt PROGMEM, ...) {
     Stash::load(WRITEBUF, 0);
     uint16_t* segs = Stash::bufs[WRITEBUF].words;
     *segs++ = strlen_P(fmt);
@@ -179,7 +162,7 @@ void Stash::prepare (PGM_P fmt, ...) {
             switch (pgm_read_byte(fmt++)) {
             case 'D': {
                 char buf[7];
-                wtoa(argval, buf);
+                ether.wtoa(argval, buf);
                 arglen = strlen(buf);
                 break;
             }
@@ -187,7 +170,7 @@ void Stash::prepare (PGM_P fmt, ...) {
                 arglen = strlen((const char*) argval);
                 break;
             case 'F':
-                arglen = strlen_P((PGM_P) argval);
+                arglen = strlen_P((const char*) argval);
                 break;
             case 'E': {
                 byte* s = (byte*) argval;
@@ -223,9 +206,9 @@ void Stash::extract (uint16_t offset, uint16_t count, void* buf) {
     Stash::load(WRITEBUF, 0);
     uint16_t* segs = Stash::bufs[WRITEBUF].words;
 #ifdef __AVR__
-    PGM_P fmt = (PGM_P) *++segs;
+    const char* fmt PROGMEM = (const char*) *++segs;
 #else
-    PGM_P fmt = (PGM_P)((segs[2] << 16) | segs[1]);
+    const char* fmt PROGMEM = (const char*)((segs[2] << 16) | segs[1]);
     segs += 2;
 #endif
     Stash stash;
@@ -248,7 +231,7 @@ void Stash::extract (uint16_t offset, uint16_t count, void* buf) {
             mode = pgm_read_byte(fmt++);
             switch (mode) {
             case 'D':
-                wtoa(arg, tmp);
+                ether.wtoa(arg, tmp);
                 ptr = tmp;
                 break;
             case 'S':
@@ -291,9 +274,9 @@ void Stash::cleanup () {
     Stash::load(WRITEBUF, 0);
     uint16_t* segs = Stash::bufs[WRITEBUF].words;
 #ifdef __AVR__
-    PGM_P fmt = (PGM_P) *++segs;
+    const char* fmt PROGMEM = (const char*) *++segs;
 #else
-    PGM_P fmt = (PGM_P)((segs[2] << 16) | segs[1]);
+    const char* fmt PROGMEM = (const char*)((segs[2] << 16) | segs[1]);
     segs += 2;
 #endif
     for (;;) {
@@ -315,118 +298,3 @@ void Stash::cleanup () {
     }
 }
 
-void BufferFiller::emit_p(PGM_P fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    for (;;) {
-        char c = pgm_read_byte(fmt++);
-        if (c == 0)
-            break;
-        if (c != '$') {
-            *ptr++ = c;
-            continue;
-        }
-        c = pgm_read_byte(fmt++);
-        switch (c) {
-        case 'D':
-#ifdef __AVR__
-            wtoa(va_arg(ap, uint16_t), (char*) ptr);
-#else
-            wtoa(va_arg(ap, int), (char*) ptr);
-#endif
-            break;
-#ifdef FLOATEMIT
-        case 'T':
-            dtostrf    (    va_arg(ap, double), 10, 3, (char*)ptr );
-            break;
-#endif
-        case 'H': {
-#ifdef __AVR__
-            char p1 =  va_arg(ap, uint16_t);
-#else
-            char p1 =  va_arg(ap, int);
-#endif
-            char p2;
-            p2 = (p1 >> 4) & 0x0F;
-            p1 = p1 & 0x0F;
-            if (p1 > 9) p1 += 0x07; // adjust 0x0a-0x0f to come out 'a'-'f'
-            p1 += 0x30;             // and complete
-            if (p2 > 9) p2 += 0x07; // adjust 0x0a-0x0f to come out 'a'-'f'
-            p2 += 0x30;             // and complete
-            *ptr++ = p2;
-            *ptr++ = p1;
-            continue;
-        }
-        case 'L':
-            ltoa(va_arg(ap, long), (char*) ptr, 10);
-            break;
-        case 'S':
-            strcpy((char*) ptr, va_arg(ap, const char*));
-            break;
-        case 'F': {
-            PGM_P s = va_arg(ap, PGM_P);
-            char d;
-            while ((d = pgm_read_byte(s++)) != 0)
-                *ptr++ = d;
-            continue;
-        }
-        case 'E': {
-            byte* s = va_arg(ap, byte*);
-            char d;
-            while ((d = eeprom_read_byte(s++)) != 0)
-                *ptr++ = d;
-            continue;
-        }
-        default:
-            *ptr++ = c;
-            continue;
-        }
-        ptr += strlen((char*) ptr);
-    }
-    va_end(ap);
-}
-
-EtherCard ether;
-
-uint8_t EtherCard::mymac[6];  // my MAC address
-uint8_t EtherCard::myip[4];   // my ip address
-uint8_t EtherCard::netmask[4]; // subnet mask
-uint8_t EtherCard::broadcastip[4]; // broadcast address
-uint8_t EtherCard::gwip[4];   // gateway
-uint8_t EtherCard::dhcpip[4]; // dhcp server
-uint8_t EtherCard::dnsip[4];  // dns server
-uint8_t EtherCard::hisip[4];  // ip address of remote host
-uint16_t EtherCard::hisport = 80; // tcp port to browse to
-bool EtherCard::using_dhcp = false;
-bool EtherCard::persist_tcp_connection = false;
-uint16_t EtherCard::delaycnt = 0; //request gateway ARP lookup
-
-uint8_t EtherCard::begin (const uint16_t size,
-                          const uint8_t* macaddr,
-                          uint8_t csPin) {
-    using_dhcp = false;
-#if ETHERCARD_STASH
-    Stash::initMap();
-#endif
-    copyMac(mymac, macaddr);
-    return initialize(size, mymac, csPin);
-}
-
-bool EtherCard::staticSetup (const uint8_t* my_ip,
-                             const uint8_t* gw_ip,
-                             const uint8_t* dns_ip,
-                             const uint8_t* mask) {
-    using_dhcp = false;
-
-    if (my_ip != 0)
-        copyIp(myip, my_ip);
-    if (gw_ip != 0)
-        setGwIp(gw_ip);
-    if (dns_ip != 0)
-        copyIp(dnsip, dns_ip);
-    if(mask != 0)
-        copyIp(netmask, mask);
-    updateBroadcastAddress();
-    delaycnt = 0; //request gateway ARP lookup
-    return true;
-}

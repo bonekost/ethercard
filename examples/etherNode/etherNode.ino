@@ -1,18 +1,20 @@
 // Arduino demo sketch for testing RFM12B + ethernet
-// 2010-05-20 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
-
+// 2010-05-20 <jc@wippler.nl>
+//
+// License: GPLv2
+//
 // Listens for RF12 messages and displays valid messages on a webpage
 // Memory usage exceeds 1K, so use Atmega328 or decrease history/buffers
 //
 // This sketch is derived from RF12eth.pde:
-// May 2010, Andras Tucsni, http://opensource.org/licenses/mit-license.php
- 
+// May 2010, Andras Tucsni
+
 #include <EtherCard.h>
 #include <JeeLib.h>
 #include <avr/eeprom.h>
 
-#define DEBUG   1   // set to 1 to display free RAM on web page
-#define SERIAL  0   // set to 1 to show incoming requests on serial port
+#define DEBUG         1   // set to 1 to display free RAM on web page
+#define SERIAL_PRINT  0   // set to 1 to show incoming requests on serial port
 
 #define CONFIG_EEPROM_ADDR ((byte*) 0x10)
 
@@ -67,29 +69,13 @@ static void saveConfig() {
 
 #if DEBUG
 static int freeRam () {
-  extern int __heap_start, *__brkval; 
-  int v; 
-  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
 }
 #endif
 
-void setup(){
-#if SERIAL
-    Serial.begin(57600);
-    Serial.println("\n[etherNode]");
-#endif
-    loadConfig();
-    
-    if (ether.begin(sizeof Ethernet::buffer, mymac) == 0) 
-      Serial.println( "Failed to access Ethernet controller");
-    if (!ether.dhcpSetup())
-      Serial.println("DHCP failed");
-#if SERIAL
-    ether.printIp("IP: ", ether.myip);
-#endif
-}
-
-const char okHeader[] PROGMEM = 
+const char okHeader[] PROGMEM =
     "HTTP/1.0 200 OK\r\n"
     "Content-Type: text/html\r\n"
     "Pragma: no-cache\r\n"
@@ -99,7 +85,7 @@ static void homePage(BufferFiller& buf) {
     word mhz = config.band == 4 ? 433 : config.band == 8 ? 868 : 915;
     buf.emit_p(PSTR("$F\r\n"
         "<meta http-equiv='refresh' content='$D'/>"
-        "<title>RF12 etherNode - $D MHz, group $D</title>" 
+        "<title>RF12 etherNode - $D MHz, group $D</title>"
         "RF12 etherNode - $D MHz, group $D "
             "- <a href='c'>configure</a> - <a href='s'>send packet</a>"
         "<h3>Last $D messages:</h3>"
@@ -193,7 +179,7 @@ static void sendPage(const char* data, BufferFiller& buf) {
                 outBuf[outCount] = 10 * outBuf[outCount] + (*p - '0');
             ++outCount;
         }
-#if SERIAL
+#if SERIAL_PRINT
         Serial.print("Send to ");
         Serial.print(outDest, DEC);
         Serial.print(':');
@@ -223,6 +209,23 @@ static void sendPage(const char* data, BufferFiller& buf) {
         "</form>"), okHeader);
 }
 
+void setup(){
+#if SERIAL_PRINT
+    Serial.begin(57600);
+    Serial.println("\n[etherNode]");
+#endif
+    loadConfig();
+
+    // Change 'SS' to your Slave Select pin, if you arn't using the default pin
+    if (ether.begin(sizeof Ethernet::buffer, mymac, SS) == 0)
+      Serial.println( "Failed to access Ethernet controller");
+    if (!ether.dhcpSetup())
+      Serial.println("DHCP failed");
+#if SERIAL_PRINT
+    ether.printIp("IP: ", ether.myip);
+#endif
+}
+
 void loop(){
     word len = ether.packetReceive();
     word pos = ether.packetLoop(len);
@@ -230,7 +233,7 @@ void loop(){
     if (pos) {
         bfill = ether.tcpOffset();
         char* data = (char *) Ethernet::buffer + pos;
-#if SERIAL
+#if SERIAL_PRINT
         Serial.println(data);
 #endif
         // receive buf hasn't been clobbered by reply yet
@@ -245,7 +248,7 @@ void loop(){
                 "HTTP/1.0 401 Unauthorized\r\n"
                 "Content-Type: text/html\r\n"
                 "\r\n"
-                "<h1>401 Unauthorized</h1>"));  
+                "<h1>401 Unauthorized</h1>"));
         ether.httpServerReply(bfill.position()); // send web page data
     }
 
@@ -253,7 +256,7 @@ void loop(){
     if (rf12_recvDone() && rf12_crc == 0 && (rf12_hdr & RF12_HDR_CTL) == 0) {
         history_rcvd[next_msg][0] = rf12_hdr;
         for (byte i = 0; i < rf12_len; ++i)
-            if (i < MESSAGE_TRUNC) 
+            if (i < MESSAGE_TRUNC)
                 history_rcvd[next_msg][i+1] = rf12_data[i];
         history_len[next_msg] = rf12_len < MESSAGE_TRUNC ? rf12_len+1
                                                          : MESSAGE_TRUNC+1;
@@ -261,16 +264,17 @@ void loop(){
         msgs_rcvd = (msgs_rcvd + 1) % 10000;
 
         if (RF12_WANTS_ACK && !config.collect) {
-#if SERIAL
+#if SERIAL_PRINT
             Serial.println(" -> ack");
 #endif
-            rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+            rf12_sendStart(RF12_ACK_REPLY);
         }
     }
-    
+
     // send a data packet out if requested
     if (outCount >= 0 && rf12_canSend()) {
-        rf12_sendStart(outDest, outBuf, outCount, 1);
+        rf12_sendStart(outDest, outBuf, outCount);
+        rf12_sendWait(1);
         outCount = -1;
     }
 }

@@ -1,15 +1,17 @@
 // Collect RF12 packets and send them on as UDP collectd packets on Ethernet.
-// 2010-05-20 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
+// 2010-05-20 <jc@wippler.nl>
+//
+// License: GPLv2
 
 // This sketch is derived from RF12eth.pde (and etherNode.ino):
-// May 2010, Andras Tucsni, http://opensource.org/licenses/mit-license.php
+// May 2010, Andras Tucsni
 
 #include <EtherCard.h>
 #include <JeeLib.h>
 #include <avr/eeprom.h>
 
-#define DEBUG   1   // set to 1 to display free RAM on web page
-#define SERIAL  1   // set to 1 to show incoming requests on serial port
+#define DEBUG         1   // set to 1 to display free RAM on web page
+#define SERIAL_PRINT  1   // set to 1 to show incoming requests on serial port
 
 #define CONFIG_EEPROM_ADDR ((byte*) 0x10)
 
@@ -67,24 +69,13 @@ static void saveConfig () {
 
 #if DEBUG
 static int freeRam () {
-extern int __heap_start, *__brkval; 
-int v; 
-return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
+extern int __heap_start, *__brkval;
+int v;
+return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
 }
 #endif
 
-void setup (){
-  Serial.begin(57600);
-  Serial.println("\n[JeeUdp]");
-  loadConfig();
-  if (ether.begin(sizeof Ethernet::buffer, mymac) == 0) 
-    Serial.println( "Failed to access Ethernet controller");
-  if (!ether.dhcpSetup())
-    Serial.println("DHCP failed");
-  ether.printIp("IP: ", ether.myip);
-}
-
-const char okHeader[] PROGMEM = 
+const char okHeader[] PROGMEM =
   "HTTP/1.0 200 OK\r\n"
   "Content-Type: text/html\r\n"
   "Pragma: no-cache\r\n"
@@ -93,7 +84,7 @@ const char okHeader[] PROGMEM =
 static void homePage (BufferFiller& buf) {
   word mhz = config.band == 4 ? 433 : config.band == 8 ? 868 : 915;
   buf.emit_p(PSTR("$F\r\n"
-    "<title>RF12 JeeUdp</title>" 
+    "<title>RF12 JeeUdp</title>"
     "<h2>RF12 JeeUdp @ $D - RF12 @ $D.$D</h2>"
         "<a href='c'>Configure</a> - <a href='s'>Send Packet</a>"
     "<h3>Last $D messages:</h3>"
@@ -186,7 +177,7 @@ static void sendPage (const char* data, BufferFiller& buf) {
         outBuf[outCount] = 10 * outBuf[outCount] + (*p - '0');
       ++outCount;
     }
-#if SERIAL
+#if SERIAL_PRINT
     Serial.print("Send to ");
     Serial.print(outDest, DEC);
     Serial.print(':');
@@ -246,7 +237,7 @@ static void collectPayload (word type) {
 static void forwardToUDP () {
   static byte destIp[] = { 239,192,74,66 }; // UDP multicast address
   char buf[10];
-  
+
   collPos = 0;
   collectStr(0x0000, "JeeUdp");
   collectStr(0x0002, "RF12");
@@ -257,11 +248,24 @@ static void forwardToUDP () {
   sprintf(buf, "%d", rf12_hdr);
   collectStr(0x0005, buf);
   collectPayload(0x0006);
-  
+
   ether.sendUdp ((char*) collBuf, collPos, 23456, destIp, config.port);
-#if SERIAL
+#if SERIAL_PRINT
   Serial.println("UDP sent");
 #endif
+}
+
+void setup (){
+  Serial.begin(57600);
+  Serial.println("\n[JeeUdp]");
+  loadConfig();
+
+  // Change 'SS' to your Slave Select pin, if you arn't using the default pin
+  if (ether.begin(sizeof Ethernet::buffer, mymac, SS) == 0)
+    Serial.println( "Failed to access Ethernet controller");
+  if (!ether.dhcpSetup())
+    Serial.println("DHCP failed");
+  ether.printIp("IP: ", ether.myip);
 }
 
 void loop (){
@@ -271,7 +275,7 @@ void loop (){
   if (pos) {
     bfill = ether.tcpOffset();
     char* data = (char *) Ethernet::buffer + pos;
-#if SERIAL
+#if SERIAL_PRINT
     Serial.println(data);
 #endif
     // receive buf hasn't been clobbered by reply yet
@@ -286,7 +290,7 @@ void loop (){
         "HTTP/1.0 401 Unauthorized\r\n"
         "Content-Type: text/html\r\n"
         "\r\n"
-        "<h1>401 Unauthorized</h1>"));  
+        "<h1>401 Unauthorized</h1>"));
     ether.httpServerReply(bfill.position()); // send web page data
   }
 
@@ -294,7 +298,7 @@ void loop (){
   if (rf12_recvDone() && rf12_crc == 0 && (rf12_hdr & RF12_HDR_CTL) == 0) {
     history_rcvd[next_msg][0] = rf12_hdr;
     for (byte i = 0; i < rf12_len; ++i)
-      if (i < MESSAGE_TRUNC) 
+      if (i < MESSAGE_TRUNC)
         history_rcvd[next_msg][i+1] = rf12_data[i];
     history_len[next_msg] = rf12_len < MESSAGE_TRUNC ? rf12_len+1
                                                      : MESSAGE_TRUNC+1;
@@ -302,18 +306,19 @@ void loop (){
     msgs_rcvd = (msgs_rcvd + 1) % 10000;
 
     if (RF12_WANTS_ACK && !config.collect) {
-#if SERIAL
+#if SERIAL_PRINT
       Serial.println(" -> ack");
 #endif
-      rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+      rf12_sendStart(RF12_ACK_REPLY);
     }
-    
+
     forwardToUDP();
   }
-  
+
   // send a data packet out if requested
   if (outCount >= 0 && rf12_canSend()) {
-    rf12_sendStart(outDest, outBuf, outCount, 1);
+    rf12_sendStart(outDest, outBuf, outCount);
+    rf12_sendWait(1);
     outCount = -1;
   }
 }
